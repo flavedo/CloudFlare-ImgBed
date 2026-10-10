@@ -8,7 +8,11 @@
         text-decoration:none; }
       .admin-menu-entry.active { opacity:1; visibility:visible; pointer-events:auto;
         transform:translateY(-145px); }
-      .admin-menu-entry.active:hover { transform:translateY(-147px) scale(1.05); }
+      /* Outrank the Vue-scoped toolbar hover rule, even when its lazy CSS loads later. */
+      .upload-home .toolbar a.admin-menu-entry.active:hover,
+      .upload-home .toolbar a.admin-menu-entry.active:focus-visible {
+        transform:translateY(-145px);
+      }
       .admin-menu-entry:focus-visible, .admin-log-entry:focus-visible {
         outline:2px solid var(--el-color-primary); outline-offset:4px; }
       .admin-log-entry { text-decoration:none; margin-right:12px; }
