@@ -34,28 +34,6 @@ export async function onRequest(context) {  // Contents of context object
         return UnauthorizedResponse('Unauthorized');
     }
 
-    if (url.searchParams.get('uploadStatus') === 'true') {
-        const uploadId = url.searchParams.get('uploadId');
-        const db = getDatabase(env);
-        const value = uploadId ? await db.get(`upload_session_${uploadId}`) : null;
-        if (!value) return createResponse('Upload session expired', { status: 410 });
-        const session = JSON.parse(value);
-        if (Date.now() > session.expiresAt) return createResponse('Upload session expired', { status: 410 });
-        const completed = [];
-        let cursor;
-        do {
-            const page = await db.list({ prefix: `chunk_${uploadId}_`, limit: 1000, ...(cursor ? {cursor} : {}) });
-            for (const key of page.keys) {
-                if (key.metadata?.status === 'completed') completed.push(Number(key.name.split('_').at(-1)));
-            }
-            cursor = page.list_complete ? null : page.cursor;
-        } while (cursor);
-
-        return createResponse(JSON.stringify({ success: true, uploadId, completed: completed }), {
-            status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
-        });
-    }
-
     // 获得上传IP
     const uploadIp = getUploadIp(request);
     // 判断上传ip是否被封禁
@@ -104,7 +82,6 @@ async function processFileUpload(context, formdata = null) {
 
     // 将 formdata 存储在 context 中
     context.formdata = formdata;
-    context.data.uploadLogDetails = { fileName: formdata.get('file')?.name, fileSizeBytes: formdata.get('file')?.size };
 
     // 获得上传渠道类型
     const urlParamUploadChannel = url.searchParams.get('uploadChannel');

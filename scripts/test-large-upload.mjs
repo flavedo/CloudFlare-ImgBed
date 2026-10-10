@@ -38,10 +38,10 @@ await context.cleanupChunkData({}, 'test', 640);
 assert.equal(deleteCalls, 0);
 await context.cleanupChunkData({}, 'test', 2);
 assert.equal(deleteCalls, 3);
-for (const [chunks, expected] of [[640, 200], [2560, 200], [2561, 413], [-1, 413]]) {
+for (const [chunks, expected] of [[640, 200], [641, 413], [-1, 413]]) {
     const values = { originalFileName: 'video.mp4', originalFileType: 'video/mp4', totalChunks: String(chunks) };
     const response = await context.initializeChunkedUpload({
-        env: {}, data: {}, url: new URL('https://test/upload?uploadChannel=telegram'),
+        env: {}, url: new URL('https://test/upload?uploadChannel=telegram'),
         request: { formData: async () => ({ get: key => values[key] }) }
     });
     assert.equal(response.status, expected);
@@ -50,7 +50,7 @@ records[0].metadata.status = 'failed';
 const failed = await context.checkChunkUploadStatuses({}, 'test', 640);
 assert.equal(failed[0].status, 'missing');
 assert.equal(getCalls, 1);
-const frontend = fs.readFileSync('js/' + fs.readdirSync('js').find(n => /^273\..*\.js$/.test(n)), 'utf8');
+const frontend = fs.readFileSync('js/273.70bd5669.js', 'utf8');
 const expression = frontend.match(/s\.size\/1024\/1024<=\d+\|\|"telegram"!==this\.uploadChannel/)[0];
 for (const [bytes, expected] of [[3 * 1024 ** 3, true], [10 * 1024 ** 3, true], [10 * 1024 ** 3 + 1, false]]) {
     assert.equal(vm.runInNewContext(expression, { s: { size: bytes }, uploadChannel: 'telegram' }), expected);

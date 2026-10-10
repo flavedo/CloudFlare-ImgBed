@@ -38,7 +38,6 @@ export async function onRequestPost(context) {
 
         const body = await request.json();
         const { fileSize, fileName, fileType, sha256, fileSample, channelName, uploadNameType, uploadFolder } = body;
-        context.data.uploadLogDetails = { fileName: body.fileName, fileSizeBytes: body.fileSize, uploadId: body.fullId };
 
         if (!fileSize || !fileName || !fileType || !sha256 || !fileSample) {
             return new Response(JSON.stringify({
