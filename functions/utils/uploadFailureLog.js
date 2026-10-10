@@ -38,7 +38,7 @@ export async function saveUploadFailure(context, error, status) {
         channel: details.channel || (url.pathname.includes('/huggingface/') ? 'huggingface' : url.searchParams.get('uploadChannel') || 'telegram'),
         source: details.source || 'server',
         requestId: String(details.requestId || context.data.uploadLogId || '').slice(0,128),
-        rayId: String(details.rayId || context.request.headers.get('CF-Ray') || '').slice(0,128),
+        rayId: String(details.rayId || (details.source === 'browser' ? '' : context.request.headers.get('CF-Ray')) || '').slice(0,128),
         observedAt: Number.isSafeInteger(details.observedAt) ? details.observedAt : null,
         totalChunks: Number.isInteger(details.totalChunks) ? details.totalChunks : null,
         attempt: Number.isInteger(details.attempt) ? details.attempt : null,

@@ -24,7 +24,7 @@
         return redact([error.message, body, error.response?.headers?.['cf-ray'] ? 'CF-Ray '+error.response.headers['cf-ray'] : ''].filter(Boolean).join(' · '));
     };
     const style = document.createElement('style');
-    style.textContent = '.upload-inline-details{font:13px system-ui;text-align:left;overflow-wrap:anywhere;color:var(--el-text-color-primary,#263445);margin-top:10px;width:100%}.upload-inline-details p{margin:6px 0}.upload-inline-details summary{cursor:pointer;color:var(--el-color-primary,#409eff)}.upload-inline-details pre{white-space:pre-wrap;max-height:180px;overflow:auto;text-align:left;font-size:12px}.upload-list-item-content:has(.upload-inline-details){align-items:stretch}.upload-log-shortcut{display:block;text-align:right;margin:10px 0;color:var(--el-color-primary,#409eff)}';
+    style.textContent = '.upload-list-dashboard[data-v-a12d47f4]{position:relative;top:auto}.upload-inline-details{min-width:0}.upload-list-item-content:has(.upload-inline-details){min-width:0;flex:1}.upload-inline-details details[open]{max-width:100%} .upload-inline-details{font:13px system-ui;text-align:left;overflow-wrap:anywhere;color:var(--el-text-color-primary,#263445);margin-top:10px;width:100%}.upload-inline-details p{margin:6px 0}.upload-inline-details summary{cursor:pointer;color:var(--el-color-primary,#409eff)}.upload-inline-details pre{white-space:pre-wrap;max-height:180px;overflow:auto;text-align:left;font-size:12px}.upload-list-item-content:has(.upload-inline-details){align-items:stretch}.upload-log-shortcut{display:block;text-align:right;margin:10px 0;color:var(--el-color-primary,#409eff)}';
     document.head.append(style);
     let lastRender = 0;
     function render() {
@@ -70,13 +70,14 @@
     addEventListener('upload-detail', ({detail:d}) => {
         const key=String(d.uid||d.uploadId),r=records.get(key)||{events:[],startedAt:Date.now()}; Object.assign(r,d);
         if(d.stage!=='上传分块') {
-            r.events.push(`${new Date().toLocaleTimeString()} ${d.stage}${d.chunkIndex==null?'':' · 分块 '+(d.chunkIndex+1)+'/'+d.totalChunks}${d.attempt?' · 尝试 '+d.attempt:''}${d.error?' · '+redact(d.error):''}`);
+            r.events.push(`${new Date().toLocaleTimeString()} ${d.stage}${d.chunkIndex==null?'':' · 分块 '+(d.chunkIndex+1)+'/'+d.totalChunks}${d.attempt?' · 尝试 '+d.attempt:''}${d.error?' · '+(d.errorCode===1102?'Cloudflare 1102：资源超限；已停止重试，完整诊断见上传日志':redact(d.error).slice(0,220)):''}`);
             r.events=r.events.slice(-200);
         }
         const attemptKey=key+':'+d.chunkIndex;
         if(d.stage==='发送分块')activeRequests.set(attemptKey,{startedAt:Date.now(),requestId:d.requestId,attempt:d.attempt});
         if(d.error) {
-            const logs=readFailures();logs.push({id:crypto.randomUUID(),uploadId:d.uploadId,fileName:d.fileName,fileSizeBytes:d.fileSize,chunkIndex:d.chunkIndex??null,stage:d.chunkIndex==null?'upload':'chunk',status:d.status||500,error:redact(d.error),time:Date.now(),source:'browser',outcome:'failure',channel:d.channel||'telegram',requestId:d.requestId||activeRequests.get(attemptKey)?.requestId||'',rayId:d.rayId||d.ray||'',errorCode:d.errorCode??null,retryable:d.retryable??null,attempt:activeRequests.get(attemptKey)?.attempt??d.attempt??null,totalChunks:d.totalChunks??r.totalChunks,chunkSizeBytes:d.chunkSize??null,durationMs:activeRequests.has(attemptKey)?Date.now()-activeRequests.get(attemptKey).startedAt:Date.now()-r.startedAt,synced:false});
+            const prior=readFailures().findLast(log=>log.uploadId===d.uploadId&&log.error===redact(d.error));
+            const logs=readFailures();logs.push({id:crypto.randomUUID(),uploadId:d.uploadId,fileName:d.fileName,fileSizeBytes:d.fileSize,chunkIndex:d.chunkIndex??null,stage:d.chunkIndex==null?'upload':'chunk',status:d.status||500,error:redact(d.error),time:Date.now(),source:'browser',outcome:'failure',channel:d.channel||'telegram',requestId:d.requestId||activeRequests.get(attemptKey)?.requestId||prior?.requestId||'',rayId:d.rayId||d.ray||prior?.rayId||'',errorCode:d.errorCode??prior?.errorCode??null,retryable:d.retryable??prior?.retryable??null,attempt:activeRequests.get(attemptKey)?.attempt??d.attempt??null,totalChunks:d.totalChunks??r.totalChunks,chunkSizeBytes:d.chunkSize??null,durationMs:activeRequests.has(attemptKey)?Date.now()-activeRequests.get(attemptKey).startedAt:Date.now()-r.startedAt,synced:false});
             try {localStorage.setItem(storageKey,JSON.stringify(logs.slice(-2000)));} catch {r.events.push('本机日志保存失败：浏览器存储空间不足');}
             syncFailures();
         }
