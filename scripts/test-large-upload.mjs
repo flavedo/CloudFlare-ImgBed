@@ -38,7 +38,7 @@ await context.cleanupChunkData({}, 'test', 640);
 assert.equal(deleteCalls, 0);
 await context.cleanupChunkData({}, 'test', 2);
 assert.equal(deleteCalls, 3);
-for (const [chunks, expected] of [[640, 200], [641, 413], [-1, 413]]) {
+for (const [chunks, expected] of [[640, 200], [2560, 200], [2561, 413], [-1, 413]]) {
     const values = { originalFileName: 'video.mp4', originalFileType: 'video/mp4', totalChunks: String(chunks) };
     const response = await context.initializeChunkedUpload({
         env: {}, data: {}, url: new URL('https://test/upload?uploadChannel=telegram'),

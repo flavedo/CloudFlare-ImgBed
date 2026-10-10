@@ -2,6 +2,11 @@
     const records = new Map();
     const storageKey = 'upload-client-failures-v1';
     const redact = value => String(value || '').replace(/https?:\/\/[^\s"'<>]+/gi, '[URL redacted]').replace(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/g, '[token redacted]').replace(/((?:authorization|password|secret|token|api[_-]?key|authCode)\s*[:=]\s*)[^\s,;]+/gi,'$1[redacted]').slice(0,2000);
+    window.isUploadResourceLimit = error => {
+        const body = error.response?.data;
+        return body?.error_code === 1102 || body?.retryable === false ||
+            /1102|worker_exceeded_resources|Worker exceeded resource limits/i.test(typeof body === 'string' ? body : JSON.stringify(body || ''));
+    };
     window.describeUploadError = error => {
         let body = error.response?.data;
         if (typeof body === 'object') body = JSON.stringify(body);

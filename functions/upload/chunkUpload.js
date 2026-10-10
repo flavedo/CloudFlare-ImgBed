@@ -7,7 +7,8 @@ import { getDatabase, checkDatabaseConfig } from '../utils/databaseAdapter.js';
 
 const UPLOAD_SESSION_TTL = 24 * 60 * 60; // Allow slow 10 GiB uploads.
 const TELEGRAM_MAX_BYTES = 10 * 1024 ** 3;
-const TELEGRAM_CHUNK_BYTES = 16 * 1024 ** 2;
+const TELEGRAM_CHUNK_BYTES = 16 * 1024 ** 2; // Accept existing sessions.
+const TELEGRAM_SAFE_CHUNK_BYTES = 4 * 1024 ** 2;
 
 // 初始化分块上传
 export async function initializeChunkedUpload(context) {
@@ -40,8 +41,8 @@ export async function initializeChunkedUpload(context) {
         // 获取上传渠道
         const uploadChannel = url.searchParams.get('uploadChannel') || 'telegram';
         if (!Number.isInteger(totalChunks) || totalChunks < 1 ||
-            (uploadChannel === 'telegram' && totalChunks > TELEGRAM_MAX_BYTES / TELEGRAM_CHUNK_BYTES)) {
-            return createResponse('Error: Telegram upload limit is 10 GiB (640 chunks)', { status: 413 });
+            (uploadChannel === 'telegram' && (totalChunks > TELEGRAM_MAX_BYTES / TELEGRAM_SAFE_CHUNK_BYTES || context.data.uploadLogDetails.fileSizeBytes > TELEGRAM_MAX_BYTES))) {
+            return createResponse('Error: Telegram upload limit is 10 GiB (2560 chunks at 4 MiB)', { status: 413 });
         }
 
         // 获取指定的渠道名称
@@ -149,7 +150,7 @@ export async function handleChunkUpload(context) {
 
         // 立即创建分块记录，标记为"uploading"状态
         const chunkKey = `chunk_${uploadId}_${chunkIndex.toString().padStart(3, '0')}`;
-        const existing = await db.getWithMetadata(chunkKey);
+        const existing = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
         if (existing?.metadata?.status === 'completed') {
             return createResponse(JSON.stringify({ success: true, uploadId, chunkIndex, reused: true }), {
                 status: 200, headers: { 'Content-Type': 'application/json' }
@@ -172,16 +173,16 @@ export async function handleChunkUpload(context) {
         };
 
         // 立即保存分块记录和数据，设置过期时间
-        const { usingD1 } = checkDatabaseConfig(env);
-        await db.put(chunkKey, usingD1 ? '' : chunkData, {
+        // Keep the current bytes in this request; do not write then re-read a large KV value.
+        await db.put(chunkKey, '', {
             metadata: initialChunkMetadata,
             expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
         });
 
         // 同步上传分块到存储端，添加超时保护
-        await uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks, uploadId, originalFileName, originalFileType, uploadChannel, usingD1 ? chunkData : undefined);
+        await uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks, uploadId, originalFileName, originalFileType, uploadChannel, chunkData);
 
-        const finalRecord = await db.getWithMetadata(chunkKey);
+        const finalRecord = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
         if (finalRecord?.metadata?.status !== 'completed') {
             return createResponse(`Error: Chunk upload failed - ${finalRecord?.metadata?.error || 'Chunk did not complete'}`, { status: 500 });
         }
@@ -239,11 +240,12 @@ async function uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks,
     const db = getDatabase(env);
     const chunkKey = `chunk_${uploadId}_${chunkIndex.toString().padStart(3, '0')}`;
     const UPLOAD_TIMEOUT = 180000; // 3分钟超时
+    let timeoutId;
 
     try {
         // 设置超时 Promise
         const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Upload timeout')), UPLOAD_TIMEOUT);
+            timeoutId = setTimeout(() => reject(new Error('Upload timeout')), UPLOAD_TIMEOUT);
         });
 
         // 执行实际上传
@@ -277,6 +279,8 @@ async function uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks,
         } catch (metaError) {
             console.error('Failed to save timeout/error metadata:', metaError);
         }
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
@@ -293,7 +297,7 @@ async function uploadChunkToStorage(context, chunkIndex, totalChunks, uploadId, 
         let chunkMetadata;
 
         if (chunkData !== undefined) {
-            const chunkRecord = await db.getWithMetadata(chunkKey);
+            const chunkRecord = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
             chunkMetadata = (chunkRecord && chunkRecord.metadata) ? chunkRecord.metadata : {};
         } else {
             // 从数据库读取分块数据和metadata

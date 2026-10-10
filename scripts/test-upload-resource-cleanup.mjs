@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=fs.readFileSync('functions/upload/chunkUpload.js','utf8');
+const start=source.indexOf('async function uploadChunkToStorageWithTimeout');
+const method=source.slice(start,source.indexOf('// 异步上传分块到存储端，失败自动重试',start));
+let cleared,forwarded;
+const bytes=new ArrayBuffer(4);
+const ctx=vm.createContext({getDatabase:()=>({}),setTimeout:()=>42,clearTimeout:id=>{cleared=id},Promise,uploadChunkToStorage:async(...args)=>{forwarded=args.at(-1)},console});
+vm.runInContext(method,ctx);
+await ctx.uploadChunkToStorageWithTimeout({env:{}},0,1,'session','video.mkv','video/x-matroska','telegram',bytes);
+assert.equal(cleared,42);assert.equal(forwarded,bytes);
+assert.match(source,/await db.put\(chunkKey, '',/);
+assert.match(source,/uploadChannel, chunkData\);/);
+console.log('Passed: completed uploads clear timeout handles and pass request bytes directly to storage without a KV data round trip.');
