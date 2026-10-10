@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {onRequestDelete} from '../functions/api/manage/uploadFailures.js';
 import {FAILURE_PREFIX} from '../functions/utils/uploadFailureLog.js';
 const deleted=[];
-const kv={delete:async key=>{deleted.push(key)}};
+const kv={get:async()=>null,delete:async key=>{deleted.push(key)}};
 const id='12345678-1234-1234-1234-123456789012',time=123456;
 const request=records=>({env:{img_url:kv},request:new Request('https://test/api/manage/uploadFailures',{method:'DELETE',body:JSON.stringify({records})})});
 const response=await onRequestDelete(request([{id,time}]));
