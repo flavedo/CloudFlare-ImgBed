@@ -1,0 +1,15 @@
+import vm from 'node:vm';
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const values=new Map(),handlers=new Map();
+const ctx=vm.createContext({window:{},document:{head:{append(){}},createElement:()=>({}),querySelector:()=>null,querySelectorAll:()=>[],getElementById:()=>({})},localStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)},addEventListener:(name,fn)=>handlers.set(name,fn),setInterval(){},requestAnimationFrame(){},MutationObserver:class{observe(){}},crypto:globalThis.crypto,Date,Map,DOMParser:class{parseFromString(){return {title:'Cloudflare unavailable',body:{textContent:'Error 503'}}}}});
+vm.runInContext(fs.readFileSync('static/upload-details.js','utf8'),ctx);
+ctx.window.sendUploadReport=async()=>{throw new Error('logging backend unavailable')};
+const error=ctx.window.describeUploadError({message:'Request failed 503',response:{status:503,data:'token=secret https://private.example/error',headers:{'cf-ray':'ray-test'}}});
+assert.ok(error.includes('ray-test'));assert.ok(!error.includes('secret'));assert.ok(!error.includes('private.example'));
+handlers.get('upload-detail')({detail:{uid:'f',uploadId:'session',fileName:'video.mkv',fileSize:123,totalChunks:3,chunkIndex:1,stage:'分块重试',status:503,error}});
+await Promise.resolve();
+const saved=JSON.parse(values.get('upload-client-failures-v1'));
+assert.equal(saved.length,1);assert.equal(saved[0].status,503);assert.equal(saved[0].synced,false);assert.equal(saved[0].uploadId,'session');
+assert.ok(!saved[0].error.includes('secret'));
+console.log('Passed: browser captures 503 and correlation, redacts secrets and preserves unsynced failures when the server is unavailable.');

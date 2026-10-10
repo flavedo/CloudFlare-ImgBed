@@ -149,6 +149,12 @@ export async function handleChunkUpload(context) {
 
         // 立即创建分块记录，标记为"uploading"状态
         const chunkKey = `chunk_${uploadId}_${chunkIndex.toString().padStart(3, '0')}`;
+        const existing = await db.getWithMetadata(chunkKey);
+        if (existing?.metadata?.status === 'completed') {
+            return createResponse(JSON.stringify({ success: true, uploadId, chunkIndex, reused: true }), {
+                status: 200, headers: { 'Content-Type': 'application/json' }
+            });
+        }
         const chunkData = await chunk.arrayBuffer();
         const uploadStartTime = Date.now();
         const initialChunkMetadata = {

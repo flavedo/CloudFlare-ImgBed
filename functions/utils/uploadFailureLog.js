@@ -18,13 +18,14 @@ export async function saveUploadFailure(context, error, status) {
         fileName: String(details.fileName || '').slice(0, 512),
         fileSizeBytes: Number.isSafeInteger(details.fileSizeBytes) ? details.fileSizeBytes : null,
         chunkSizeBytes: Number.isSafeInteger(details.chunkSizeBytes) ? details.chunkSizeBytes : null,
-        stage: url.searchParams.get('cleanup') === 'true' ? 'cleanup' : url.pathname.includes('/huggingface/getUploadUrl') ? 'initialize'
+        stage: details.stage || (url.searchParams.get('cleanup') === 'true' ? 'cleanup' : url.pathname.includes('/huggingface/getUploadUrl') ? 'initialize'
             : url.pathname.includes('/huggingface/commitUpload') ? 'merge'
             : url.searchParams.get('initChunked') === 'true' ? 'initialize'
             : url.searchParams.get('merge') === 'true' ? 'merge'
-            : url.searchParams.get('chunked') === 'true' ? 'chunk' : 'upload',
+            : url.searchParams.get('chunked') === 'true' ? 'chunk' : 'upload'),
         chunkIndex: Number.isInteger(details.chunkIndex) ? details.chunkIndex : null,
         channel: url.pathname.includes('/huggingface/') ? 'huggingface' : url.searchParams.get('uploadChannel') || 'telegram',
+        source: details.source || 'server',
         status, outcome: status >= 400 ? 'failure' : 'success',
         durationMs: Math.max(0, time - (context.data.uploadLogStartedAt || time)),
         error: status >= 400 ? redactError(error) : null, time, timestamp: new Date(time).toISOString()
@@ -34,13 +35,16 @@ export async function saveUploadFailure(context, error, status) {
         // No TTL: history survives temporary upload-session cleanup.
         await getDatabase(context.env).put(key, JSON.stringify(record));
         console.info('Upload request recorded', JSON.stringify(record));
+        return record;
     } catch {
         // Logging failure must not replace the original upload response.
         console.error('Unable to persist upload failure log', record.id);
+        return null;
     }
 }
 
 export async function uploadFailureLogging(context) {
+    if (new URL(context.request.url).pathname.endsWith('/report')) return context.next();
     context.data.uploadLogStartedAt = Date.now();
     context.data.uploadLogId = crypto.randomUUID();
     try {

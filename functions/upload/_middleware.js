@@ -20,4 +20,4 @@ async function handleOptions(context) {
     return context.next();
 }
 
-export const onRequest = [checkDatabaseConfig, handleOptions, uploadFailureLogging, errorHandling, telemetryData];
+export const onRequest = [handleOptions, uploadFailureLogging, checkDatabaseConfig, errorHandling, telemetryData];
