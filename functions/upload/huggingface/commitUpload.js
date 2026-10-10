@@ -23,6 +23,7 @@ export async function onRequestPost(context) {
 
         const body = await request.json();
         const { fullId, filePath, sha256, fileSize, fileName, fileType, channelName, multipartParts } = body;
+        context.data.uploadLogDetails = { fileName: body.fileName, fileSizeBytes: body.fileSize, uploadId: body.fullId };
 
         if (!fullId || !filePath || !sha256 || !fileSize) {
             return new Response(JSON.stringify({

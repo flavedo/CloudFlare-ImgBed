@@ -82,6 +82,7 @@ async function processFileUpload(context, formdata = null) {
 
     // 将 formdata 存储在 context 中
     context.formdata = formdata;
+    context.data.uploadLogDetails = { fileName: formdata.get('file')?.name, fileSizeBytes: formdata.get('file')?.size };
 
     // 获得上传渠道类型
     const urlParamUploadChannel = url.searchParams.get('uploadChannel');

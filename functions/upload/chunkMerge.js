@@ -19,6 +19,7 @@ export async function handleChunkMerge(context) {
         totalChunks = parseInt(formdata.get('totalChunks'));
         originalFileName = formdata.get('originalFileName');
         originalFileType = formdata.get('originalFileType');
+        context.data.uploadLogDetails = { uploadId, fileName: originalFileName, fileSizeBytes: Number(formdata.get('originalFileSize')) || null };
 
         if (!uploadId || !totalChunks || !originalFileName) {
             return createResponse('Error: Missing merge parameters', { status: 400 });
@@ -32,6 +33,7 @@ export async function handleChunkMerge(context) {
         }
 
         const sessionInfo = JSON.parse(sessionData);
+        context.data.uploadLogDetails.fileSizeBytes ??= sessionInfo.fileSizeBytes ?? null;
 
         // 验证会话信息
         if (sessionInfo.originalFileName !== originalFileName ||

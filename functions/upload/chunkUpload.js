@@ -21,6 +21,7 @@ export async function initializeChunkedUpload(context) {
         const originalFileName = formdata.get('originalFileName');
         const originalFileType = formdata.get('originalFileType');
         const totalChunks = parseInt(formdata.get('totalChunks'));
+        context.data.uploadLogDetails = { fileName: originalFileName, fileSizeBytes: Number(formdata.get('originalFileSize')) || null };
 
         if (!originalFileName || !originalFileType || !totalChunks) {
             return createResponse('Error: Missing initialization parameters', { status: 400 });
@@ -30,6 +31,7 @@ export async function initializeChunkedUpload(context) {
         const timestamp = Date.now();
         const random = Math.random().toString(36).slice(2, 11);
         const uploadId = `upload_${timestamp}_${random}`;
+        context.data.uploadLogDetails.uploadId = uploadId;
 
         // 获取上传IP
         const uploadIp = getUploadIp(request);
@@ -50,6 +52,7 @@ export async function initializeChunkedUpload(context) {
             uploadId,
             originalFileName,
             originalFileType,
+            fileSizeBytes: context.data.uploadLogDetails.fileSizeBytes,
             totalChunks,
             uploadChannel,
             channelName,
@@ -103,6 +106,7 @@ export async function handleChunkUpload(context) {
         const uploadId = formdata.get('uploadId');
         const originalFileName = formdata.get('originalFileName');
         const originalFileType = formdata.get('originalFileType');
+        context.data.uploadLogDetails = { uploadId, fileName: originalFileName, fileSizeBytes: Number(formdata.get('originalFileSize')) || null, chunkSizeBytes: chunk?.size, chunkIndex };
 
         if (!chunk || chunkIndex === null || !totalChunks || !uploadId || !originalFileName || !originalFileType) {
             return createResponse('Error: Missing chunk upload parameters', { status: 400 });
@@ -170,6 +174,11 @@ export async function handleChunkUpload(context) {
 
         // 同步上传分块到存储端，添加超时保护
         await uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks, uploadId, originalFileName, originalFileType, uploadChannel, usingD1 ? chunkData : undefined);
+
+        const finalRecord = await db.getWithMetadata(chunkKey);
+        if (finalRecord?.metadata?.status !== 'completed') {
+            return createResponse(`Error: Chunk upload failed - ${finalRecord?.metadata?.error || 'Chunk did not complete'}`, { status: 500 });
+        }
 
         return createResponse(JSON.stringify({
             success: true,

@@ -1,3 +1,4 @@
+import { uploadFailureLogging } from '../utils/uploadFailureLog.js';
 import { errorHandling, telemetryData, checkDatabaseConfig } from '../utils/middleware';
 
 // CORS 跨域响应头
@@ -19,4 +20,4 @@ async function handleOptions(context) {
     return context.next();
 }
 
-export const onRequest = [checkDatabaseConfig, handleOptions, errorHandling, telemetryData];
+export const onRequest = [checkDatabaseConfig, handleOptions, uploadFailureLogging, errorHandling, telemetryData];
