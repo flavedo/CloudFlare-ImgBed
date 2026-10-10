@@ -39,7 +39,7 @@
                 // Match the existing Vue scoped toolbar style, including dark mode.
                 link.setAttribute('data-v-1c133c47', '');
             } else {
-                link.href = '/api/manage/uploadFailures?view=1';
+                link.href = '/upload-failures.html';
                 link.title = '上传失败日志';
                 link.setAttribute('aria-label', '上传失败日志');
                 link.textContent = '上传失败日志';
