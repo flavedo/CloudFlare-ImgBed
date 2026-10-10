@@ -20,4 +20,19 @@ async function handleOptions(context) {
     return context.next();
 }
 
-export const onRequest = [handleOptions, uploadFailureLogging, checkDatabaseConfig, errorHandling, telemetryData];
+// Chunk requests already have request correlation and local diagnostics.
+// Avoid constructing a Sentry transaction and remote sampling request for every part.
+async function chunkErrorHandling(context) {
+    const url = new URL(context.request.url);
+    context.data.lightUpload = url.searchParams.get('chunked') === 'true' ||
+        url.searchParams.get('initChunked') === 'true' || url.searchParams.get('uploadStatus') === 'true' ||
+        url.pathname.endsWith('/report');
+    if (!context.data.lightUpload) return errorHandling(context);
+    try { return await context.next(); }
+    catch (error) { return new Response(String(error.message || 'Upload failed'), {status:500}); }
+}
+async function chunkTelemetry(context) {
+    return context.data.lightUpload ? context.next() : telemetryData(context);
+}
+
+export const onRequest = [handleOptions, uploadFailureLogging, checkDatabaseConfig, chunkErrorHandling, chunkTelemetry];

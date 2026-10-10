@@ -68,7 +68,7 @@
         } finally { syncing=false; }
     }
     addEventListener('upload-detail', ({detail:d}) => {
-        const key=String(d.uid||d.uploadId),r=records.get(key)||{events:[]}; Object.assign(r,d);
+        const key=String(d.uid||d.uploadId),r=records.get(key)||{events:[],startedAt:Date.now()}; Object.assign(r,d);
         if(d.stage!=='上传分块') {
             r.events.push(`${new Date().toLocaleTimeString()} ${d.stage}${d.chunkIndex==null?'':' · 分块 '+(d.chunkIndex+1)+'/'+d.totalChunks}${d.attempt?' · 尝试 '+d.attempt:''}${d.error?' · '+redact(d.error):''}`);
             r.events=r.events.slice(-200);
@@ -76,7 +76,7 @@
         const attemptKey=key+':'+d.chunkIndex;
         if(d.stage==='发送分块')activeRequests.set(attemptKey,{startedAt:Date.now(),requestId:d.requestId,attempt:d.attempt});
         if(d.error) {
-            const logs=readFailures();logs.push({id:crypto.randomUUID(),uploadId:d.uploadId,fileName:d.fileName,fileSizeBytes:d.fileSize,chunkIndex:d.chunkIndex??null,stage:d.chunkIndex==null?'upload':'chunk',status:d.status||500,error:redact(d.error),time:Date.now(),source:'browser',outcome:'failure',channel:d.channel||'telegram',requestId:d.requestId||activeRequests.get(attemptKey)?.requestId||'',rayId:d.rayId||d.ray||'',errorCode:d.errorCode??null,retryable:d.retryable??null,attempt:activeRequests.get(attemptKey)?.attempt??d.attempt??null,totalChunks:d.totalChunks??r.totalChunks,chunkSizeBytes:d.chunkSize??null,durationMs:activeRequests.has(attemptKey)?Date.now()-activeRequests.get(attemptKey).startedAt:null,synced:false});
+            const logs=readFailures();logs.push({id:crypto.randomUUID(),uploadId:d.uploadId,fileName:d.fileName,fileSizeBytes:d.fileSize,chunkIndex:d.chunkIndex??null,stage:d.chunkIndex==null?'upload':'chunk',status:d.status||500,error:redact(d.error),time:Date.now(),source:'browser',outcome:'failure',channel:d.channel||'telegram',requestId:d.requestId||activeRequests.get(attemptKey)?.requestId||'',rayId:d.rayId||d.ray||'',errorCode:d.errorCode??null,retryable:d.retryable??null,attempt:activeRequests.get(attemptKey)?.attempt??d.attempt??null,totalChunks:d.totalChunks??r.totalChunks,chunkSizeBytes:d.chunkSize??null,durationMs:activeRequests.has(attemptKey)?Date.now()-activeRequests.get(attemptKey).startedAt:Date.now()-r.startedAt,synced:false});
             try {localStorage.setItem(storageKey,JSON.stringify(logs.slice(-2000)));} catch {r.events.push('本机日志保存失败：浏览器存储空间不足');}
             syncFailures();
         }
