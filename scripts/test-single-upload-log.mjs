@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=fs.readFileSync('js/'+fs.readdirSync('js').find(n=>/^273\..*\.js$/.test(n)),'utf8');
+const start=source.indexOf('async uploadSingleFile(e)');
+const method=source.slice(start,source.indexOf(',async uploadFileInChunks(e)',start)).replace('async uploadSingleFile(e)','async function(e)');
+const events=[];const error=new Error('503');error.response={status:503,data:{error_code:1102}};
+const ctx=vm.createContext({crypto:globalThis.crypto,AbortController,FormData:class{append(){}},ht:{A:()=>Promise.reject(error)},console,CustomEvent:class{constructor(t,o){this.detail=o.detail}},window:{dispatchEvent:e=>events.push(e.detail),isUploadResourceLimit:()=>true,describeUploadError:()=> '1102',uploadErrorDiagnostics:()=>({errorCode:1102,retryable:false})}});
+const upload=vm.runInContext('('+method+')',ctx);const item={uid:'image',uploadChannel:'telegram'};const state={fileList:[item],abortControllers:new Map(),exceptionList:[],onUploadComplete(){}};
+await upload.call(state,{file:{uid:'image',name:'photo.png',size:100},onError(){},onProgress(){}});await new Promise(resolve=>setTimeout(resolve,0));
+assert.equal(item.resourceLimitBlocked,true);const log=events.find(e=>e.stage==='上传失败');assert.equal(log.fileName,'photo.png');assert.equal(log.status,503);assert.equal(log.retryable,false);assert.ok(log.requestId);assert.equal(typeof ctx.window.sendUploadReport,'function');
+console.log('Passed: ordinary image failure emits correlated browser log, initializes report sync and blocks automatic 1102 retry.');
