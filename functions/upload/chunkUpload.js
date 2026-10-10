@@ -3,6 +3,7 @@ import { createResponse, selectConsistentChannel, getUploadIp, getIPAddress, bui
 import { TelegramAPI } from '../utils/telegramAPI';
 import { DiscordAPI } from '../utils/discordAPI';
 import { S3Client, CreateMultipartUploadCommand, UploadPartCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { markUploadPhase } from '../utils/uploadFailureLog.js';
 import { getDatabase, checkDatabaseConfig } from '../utils/databaseAdapter.js';
 
 const UPLOAD_SESSION_TTL = 24 * 60 * 60; // Allow slow 10 GiB uploads.
@@ -97,7 +98,9 @@ export async function handleChunkUpload(context) {
     const db = getDatabase(env);
 
     // 解析表单数据
+    markUploadPhase(context, 'parse_form');
     const formdata = await request.formData();
+    markUploadPhase(context, 'form_parsed');
     context.formdata = formdata;
 
     try {
@@ -107,7 +110,7 @@ export async function handleChunkUpload(context) {
         const uploadId = formdata.get('uploadId');
         const originalFileName = formdata.get('originalFileName');
         const originalFileType = formdata.get('originalFileType');
-        context.data.uploadLogDetails = { uploadId, fileName: originalFileName, fileSizeBytes: Number(formdata.get('originalFileSize')) || null, chunkSizeBytes: chunk?.size, chunkIndex };
+        context.data.uploadLogDetails = { uploadId, fileName: originalFileName, fileSizeBytes: Number(formdata.get('originalFileSize')) || null, chunkSizeBytes: chunk?.size, chunkIndex, totalChunks };
 
         if (!chunk || chunkIndex === null || !totalChunks || !uploadId || !originalFileName || !originalFileType) {
             return createResponse('Error: Missing chunk upload parameters', { status: 400 });
@@ -115,6 +118,7 @@ export async function handleChunkUpload(context) {
 
         // 验证上传会话
         const sessionKey = `upload_session_${uploadId}`;
+        markUploadPhase(context, 'read_session');
         const sessionData = await db.get(sessionKey);
         if (!sessionData) {
             return createResponse('Error: Invalid or expired upload session', { status: 400 });
@@ -150,12 +154,14 @@ export async function handleChunkUpload(context) {
 
         // 立即创建分块记录，标记为"uploading"状态
         const chunkKey = `chunk_${uploadId}_${chunkIndex.toString().padStart(3, '0')}`;
+        markUploadPhase(context, 'check_existing_chunk');
         const existing = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
         if (existing?.metadata?.status === 'completed') {
             return createResponse(JSON.stringify({ success: true, uploadId, chunkIndex, reused: true }), {
                 status: 200, headers: { 'Content-Type': 'application/json' }
             });
         }
+        markUploadPhase(context, 'buffer_chunk');
         const chunkData = await chunk.arrayBuffer();
         const uploadStartTime = Date.now();
         const initialChunkMetadata = {
@@ -174,19 +180,23 @@ export async function handleChunkUpload(context) {
 
         // 立即保存分块记录和数据，设置过期时间
         // Keep the current bytes in this request; do not write then re-read a large KV value.
+        markUploadPhase(context, 'save_chunk_metadata');
         await db.put(chunkKey, '', {
             metadata: initialChunkMetadata,
             expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
         });
 
         // 同步上传分块到存储端，添加超时保护
+        markUploadPhase(context, 'upload_storage');
         await uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks, uploadId, originalFileName, originalFileType, uploadChannel, chunkData);
 
+        markUploadPhase(context, 'check_storage_result');
         const finalRecord = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
         if (finalRecord?.metadata?.status !== 'completed') {
             return createResponse(`Error: Chunk upload failed - ${finalRecord?.metadata?.error || 'Chunk did not complete'}`, { status: 500 });
         }
 
+        markUploadPhase(context, 'chunk_completed');
         return createResponse(JSON.stringify({
             success: true,
             message: `Chunk ${chunkIndex + 1}/${totalChunks} received and being uploaded`,

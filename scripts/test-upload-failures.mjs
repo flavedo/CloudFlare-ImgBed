@@ -14,12 +14,18 @@ function context(response, details = {}) {
 }
 const failure = context(new Response('upstream https://api.telegram.org/bot123456:ABCDEFGHIJKLMNOPQRSTUV/getFile token=secret', { status: 500 }),
     { uploadId: 'upload_test', fileName: '<img src=x onerror=alert(1)>.mp4', fileSizeBytes: 3 * 1024 ** 3, chunkIndex: 2, chunkSizeBytes: 16 * 1024 ** 2 });
+failure.request = new Request(failure.request,{headers:{'X-Upload-Request-ID':'12345678-1234-1234-1234-123456789012','CF-Ray':'ray-test-AMS'}});
 const response = await uploadFailureLogging(failure);
+assert.equal(response.headers.get('X-Upload-Request-ID'),'12345678-1234-1234-1234-123456789012');
+assert.equal(response.headers.get('X-Upload-Log-Stored'),'true');
 assert.equal(response.status, 500);
 assert.match(await response.text(), /token=secret/); // Original response is preserved.
 assert.equal(stored.size, 1);
 const record = JSON.parse([...stored.values()][0]);
 assert.equal(record.uploadId, 'upload_test');
+assert.equal(record.requestId,'12345678-1234-1234-1234-123456789012');
+assert.equal(record.rayId,'ray-test-AMS');
+assert.equal(record.timings[0].phase,'request_received');
 assert.equal(record.fileSizeBytes, 3 * 1024 ** 3);
 assert.equal(record.stage, 'chunk');
 assert.equal(record.chunkIndex, 2);
@@ -39,7 +45,9 @@ await assert.rejects(uploadFailureLogging(thrown), /failed/);
 assert.equal(stored.size, 4);
 const unavailable = context(new Response('original', { status: 502 }));
 unavailable.env.img_url.put = async () => { throw new Error('quota'); };
-assert.equal((await uploadFailureLogging(unavailable)).status, 502);
+const missingLog = await uploadFailureLogging(unavailable);
+assert.equal(missingLog.status,502);
+assert.equal(missingLog.headers.get('X-Upload-Log-Stored'),'false');
 assert.equal(redactError('password=abc'), 'password=[redacted]');
 const query = await onRequestGet({ env: { img_url: kv }, request: new Request('https://example.com/api/manage/uploadFailures') });
 assert.equal(query.headers.get('Cache-Control'), 'no-store');

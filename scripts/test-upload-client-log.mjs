@@ -9,6 +9,8 @@ assert.equal(ctx.window.isUploadResourceLimit({response:{data:{error_code:1102}}
 assert.equal(ctx.window.isUploadResourceLimit({response:{data:'Worker exceeded resource limits'}}),true);
 assert.equal(ctx.window.isUploadResourceLimit({response:{data:{retryable:false}}}),true);
 assert.equal(ctx.window.isUploadResourceLimit({response:{data:'Temporary unavailable'}}),false);
+const diagnostic=ctx.window.uploadErrorDiagnostics({response:{data:{error_code:1102,ray_id:'ray-test-AMS'}}});
+assert.equal(diagnostic.errorCode,1102);assert.equal(diagnostic.rayId,'ray-test-AMS');assert.equal(diagnostic.retryable,false);
 const error=ctx.window.describeUploadError({message:'Request failed 503',response:{status:503,data:'token=secret https://private.example/error',headers:{'cf-ray':'ray-test'}}});
 assert.ok(error.includes('ray-test'));assert.ok(!error.includes('secret'));assert.ok(!error.includes('private.example'));
 handlers.get('upload-detail')({detail:{uid:'f',uploadId:'session',fileName:'video.mkv',fileSize:123,totalChunks:3,chunkIndex:1,stage:'分块重试',status:503,error}});

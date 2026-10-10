@@ -9,6 +9,17 @@ export function redactError(value) {
         .slice(0, 2000);
 }
 
+// Wall-clock milestones, not CPU measurements. Console events remain useful
+// when Cloudflare terminates the invocation before the final database write.
+export function markUploadPhase(context, phase) {
+    const now = Date.now();
+    const trace = context.data.uploadTrace ||= [];
+    const entry = { phase, elapsedMs: Math.max(0, now - (context.data.uploadLogStartedAt || now)) };
+    trace.push(entry);
+    context.data.uploadPhase = phase;
+    console.debug('Upload milestone', JSON.stringify({ requestId: context.data.uploadLogId, ...entry }));
+}
+
 export async function saveUploadFailure(context, error, status) {
     const url = new URL(context.request.url);
     const details = context.data.uploadLogDetails || {};
@@ -24,10 +35,19 @@ export async function saveUploadFailure(context, error, status) {
             : url.searchParams.get('merge') === 'true' ? 'merge'
             : url.searchParams.get('chunked') === 'true' ? 'chunk' : 'upload'),
         chunkIndex: Number.isInteger(details.chunkIndex) ? details.chunkIndex : null,
-        channel: url.pathname.includes('/huggingface/') ? 'huggingface' : url.searchParams.get('uploadChannel') || 'telegram',
+        channel: details.channel || (url.pathname.includes('/huggingface/') ? 'huggingface' : url.searchParams.get('uploadChannel') || 'telegram'),
         source: details.source || 'server',
+        requestId: String(details.requestId || context.data.uploadLogId || '').slice(0,128),
+        rayId: String(details.rayId || context.request.headers.get('CF-Ray') || '').slice(0,128),
+        observedAt: Number.isSafeInteger(details.observedAt) ? details.observedAt : null,
+        totalChunks: Number.isInteger(details.totalChunks) ? details.totalChunks : null,
+        attempt: Number.isInteger(details.attempt) ? details.attempt : null,
+        errorCode: Number.isInteger(details.errorCode) ? details.errorCode : null,
+        retryable: typeof details.retryable === 'boolean' ? details.retryable : null,
+        phase: context.data.uploadPhase || details.phase || null,
+        timings: (context.data.uploadTrace || []).slice(-30),
         status, outcome: status >= 400 ? 'failure' : 'success',
-        durationMs: Math.max(0, time - (context.data.uploadLogStartedAt || time)),
+        durationMs: Number.isFinite(details.durationMs) ? Math.max(0,details.durationMs) : Math.max(0, time - (context.data.uploadLogStartedAt || time)),
         error: status >= 400 ? redactError(error) : null, time, timestamp: new Date(time).toISOString()
     };
     const key = `${FAILURE_PREFIX}${String(9999999999999 - time).padStart(13, '0')}@${record.id}`;
@@ -46,12 +66,17 @@ export async function saveUploadFailure(context, error, status) {
 export async function uploadFailureLogging(context) {
     if (new URL(context.request.url).pathname.endsWith('/report')) return context.next();
     context.data.uploadLogStartedAt = Date.now();
-    context.data.uploadLogId = crypto.randomUUID();
+    const suppliedId = context.request.headers.get('X-Upload-Request-ID');
+    context.data.uploadLogId = /^[a-f0-9-]{36}$/i.test(suppliedId || '') ? suppliedId : crypto.randomUUID();
+    markUploadPhase(context, 'request_received');
     try {
         const response = await context.next();
         const error = response.status >= 400 ? await response.clone().text() : null;
-        await saveUploadFailure(context, error, response.status);
-        return response;
+        const record = await saveUploadFailure(context, error, response.status);
+        const headers = new Headers(response.headers);
+        headers.set('X-Upload-Request-ID', context.data.uploadLogId);
+        headers.set('X-Upload-Log-Stored', record ? 'true' : 'false');
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     } catch (error) {
         await saveUploadFailure(context, error.message, 500);
         throw error;

@@ -5,7 +5,7 @@ const source=fs.readFileSync('functions/upload/chunkUpload.js','utf8');
 const method=source.slice(source.indexOf('export async function handleChunkUpload'),source.indexOf('export async function handleCleanupRequest')).replace('export ','');
 let writes=0,storageCalls=0;
 const db={get:async()=>JSON.stringify({originalFileName:'v.mkv',totalChunks:3,expiresAt:Date.now()+10000,uploadChannel:'telegram'}),getWithMetadata:async()=>({metadata:{status:'completed'}}),put:async()=>{writes++}};
-const ctx=vm.createContext({getDatabase:()=>db,createResponse:(body,options)=>({body,...options}),Date,JSON,Number,parseInt,TELEGRAM_CHUNK_BYTES:16*1024**2,uploadChunkToStorageWithTimeout:()=>{storageCalls++},checkDatabaseConfig:()=>({usingD1:false})});
+const ctx=vm.createContext({markUploadPhase(){},getDatabase:()=>db,createResponse:(body,options)=>({body,...options}),Date,JSON,Number,parseInt,TELEGRAM_CHUNK_BYTES:16*1024**2,uploadChunkToStorageWithTimeout:()=>{storageCalls++},checkDatabaseConfig:()=>({usingD1:false})});
 vm.runInContext(method,ctx);
 const fields={file:{size:16*1024**2,arrayBuffer(){throw new Error('Completed chunk must not be buffered again')}},chunkIndex:'1',totalChunks:'3',uploadId:'session',originalFileName:'v.mkv',originalFileType:'video/x-matroska'};
 const response=await ctx.handleChunkUpload({data:{},env:{},url:new URL('https://test/upload'),request:{formData:async()=>({get:k=>fields[k]})}});

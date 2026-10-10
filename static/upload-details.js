@@ -1,11 +1,18 @@
 (() => {
     const records = new Map();
+    const activeRequests = new Map();
     const storageKey = 'upload-client-failures-v1';
     const redact = value => String(value || '').replace(/https?:\/\/[^\s"'<>]+/gi, '[URL redacted]').replace(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/g, '[token redacted]').replace(/((?:authorization|password|secret|token|api[_-]?key|authCode)\s*[:=]\s*)[^\s,;]+/gi,'$1[redacted]').slice(0,2000);
     window.isUploadResourceLimit = error => {
         const body = error.response?.data;
         return body?.error_code === 1102 || body?.retryable === false ||
             /1102|worker_exceeded_resources|Worker exceeded resource limits/i.test(typeof body === 'string' ? body : JSON.stringify(body || ''));
+    };
+    window.uploadErrorDiagnostics = error => {
+        let body=error.response?.data;
+        if(typeof body==='string'){try{body=JSON.parse(body)}catch{body={}}}
+        return {rayId:body?.ray_id||error.response?.headers?.['cf-ray']||'',errorCode:body?.error_code||null,
+            retryable:!window.isUploadResourceLimit(error),requestId:error.response?.headers?.['x-upload-request-id']||''};
     };
     window.describeUploadError = error => {
         let body = error.response?.data;
@@ -66,11 +73,14 @@
             r.events.push(`${new Date().toLocaleTimeString()} ${d.stage}${d.chunkIndex==null?'':' · 分块 '+(d.chunkIndex+1)+'/'+d.totalChunks}${d.attempt?' · 尝试 '+d.attempt:''}${d.error?' · '+redact(d.error):''}`);
             r.events=r.events.slice(-200);
         }
+        const attemptKey=key+':'+d.chunkIndex;
+        if(d.stage==='发送分块')activeRequests.set(attemptKey,{startedAt:Date.now(),requestId:d.requestId,attempt:d.attempt});
         if(d.error) {
-            const logs=readFailures();logs.push({id:crypto.randomUUID(),uploadId:d.uploadId,fileName:d.fileName,fileSizeBytes:d.fileSize,chunkIndex:d.chunkIndex??null,stage:d.chunkIndex==null?'upload':'chunk',status:d.status||500,error:redact(d.error),time:Date.now(),source:'browser',outcome:'failure',channel:'telegram',synced:false});
+            const logs=readFailures();logs.push({id:crypto.randomUUID(),uploadId:d.uploadId,fileName:d.fileName,fileSizeBytes:d.fileSize,chunkIndex:d.chunkIndex??null,stage:d.chunkIndex==null?'upload':'chunk',status:d.status||500,error:redact(d.error),time:Date.now(),source:'browser',outcome:'failure',channel:d.channel||'telegram',requestId:d.requestId||activeRequests.get(attemptKey)?.requestId||'',rayId:d.rayId||d.ray||'',errorCode:d.errorCode??null,retryable:d.retryable??null,attempt:activeRequests.get(attemptKey)?.attempt??d.attempt??null,totalChunks:d.totalChunks??r.totalChunks,chunkSizeBytes:d.chunkSize??null,durationMs:activeRequests.has(attemptKey)?Date.now()-activeRequests.get(attemptKey).startedAt:null,synced:false});
             try {localStorage.setItem(storageKey,JSON.stringify(logs.slice(-2000)));} catch {r.events.push('本机日志保存失败：浏览器存储空间不足');}
             syncFailures();
         }
+        if(d.stage==='分块已确认')activeRequests.delete(attemptKey);
         records.set(key,r);
         if(d.stage!=='上传分块'||Date.now()-lastRender>500)render();
     });

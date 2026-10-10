@@ -16,7 +16,7 @@ const axios=async options=>{
  if(fail&&index===1){const error=new Error('503');error.response={status:503,data:resource?{error_code:1102,retryable:false}:'upstream unavailable'};throw error}
  completed.add(index);return {data:{success:true}};
 };
-const ctx=vm.createContext({FormData:Form,AbortController,Set,Map,console:{log(){},warn(){},error(){}},setTimeout:fn=>fn(),ht:{A:axios},CustomEvent:class{constructor(type,options){this.detail=options.detail}},window:{isUploadResourceLimit:e=>e.response?.data?.error_code===1102,describeUploadError:e=>e.response?.data||e.message,dispatchEvent(){}},Math,Promise});
+const ctx=vm.createContext({crypto:globalThis.crypto,FormData:Form,AbortController,Set,Map,console:{log(){},warn(){},error(){}},setTimeout:fn=>fn(),ht:{A:axios},CustomEvent:class{constructor(type,options){this.detail=options.detail}},window:{uploadErrorDiagnostics:()=>({}),isUploadResourceLimit:e=>e.response?.data?.error_code===1102,describeUploadError:e=>e.response?.data||e.message,dispatchEvent(){}},Math,Promise});
 const upload=vm.runInContext('('+method+')',ctx);
 const item={uid:'f',uploadChannel:'telegram',serverCompress:false,chunkSizeBytes:16*1024**2};
 const message=()=>{};message.closeAll=()=>{};

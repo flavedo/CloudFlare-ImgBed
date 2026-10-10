@@ -13,6 +13,8 @@ export async function onRequestPost(context) {
     try { body = JSON.parse(text); } catch { return new Response('Invalid report', {status:400}); }
     context.data.uploadLogDetails = {
         uploadId: String(body.uploadId || '').slice(0,128), fileName: String(body.fileName || '').slice(0,512),
+        channel: String(body.channel||'telegram').slice(0,32), observedAt: body.time, requestId: body.requestId, rayId: body.rayId, totalChunks: body.totalChunks, attempt: body.attempt,
+        chunkSizeBytes: body.chunkSizeBytes, durationMs: body.durationMs, errorCode: body.errorCode, retryable: body.retryable,
         fileSizeBytes: body.fileSizeBytes, chunkIndex: body.chunkIndex, source: 'browser', stage: body.stage
     };
     const status = Number.isInteger(body.status) && body.status >= 400 && body.status <= 599 ? body.status : 500;
