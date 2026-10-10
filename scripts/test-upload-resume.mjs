@@ -11,7 +11,7 @@ const axios=async options=>{
  if(url.searchParams.has('initChunked')){initializations++;return {data:{success:true,uploadId:'same-session'}}}
  if(url.searchParams.has('uploadStatus'))return {data:{success:true,completed:[...completed]}};
  if(url.searchParams.has('merge')){merges++;return {data:{success:true}}}
- const index=Number(options.data.get('chunkIndex'));calls.push(index);
+ const index=Number(url.searchParams.get('chunkIndex') ?? options.data.get('chunkIndex'));calls.push(index);
  options.onUploadProgress?.({loaded:16,total:16});
  if(fail&&index===1){const error=new Error('503');error.response={status:503,data:resource?{error_code:1102,retryable:false}:'upstream unavailable'};throw error}
  completed.add(index);return {data:{success:true}};

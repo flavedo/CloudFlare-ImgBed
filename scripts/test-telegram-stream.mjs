@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=fs.readFileSync('functions/upload/telegramStream.js','utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
+let writes=[],sent=0,reads=0,complete=false,fail=false;
+const db={get:async()=>JSON.stringify({expiresAt:Date.now()+10000,totalChunks:640,uploadChannel:'telegram',originalFileName:'video.mkv',fileSizeBytes:10*1024**3}),getWithMetadata:async()=>complete?{metadata:{status:'completed'}}:null,put:async(k,v,o)=>{assert.equal(v,'');writes.push(o.metadata)}};
+const ctx=vm.createContext({crypto:globalThis.crypto,ReadableStream,TextEncoder,AbortController,Response,Date,JSON,Number,setTimeout,clearTimeout,getDatabase:()=>db,markUploadPhase(){},selectConsistentChannel:c=>c[0],TelegramAPI:class{baseURL='https://telegram.test';getFileInfo(r){return r.result?.document}},fetch:async(url,options)=>{sent++;if(fail)throw new Error('upstream unavailable');const body=await new Response(options.body).text();assert.ok(body.includes('name="chat_id"'));assert.ok(body.includes('ABCD'));return Response.json({result:{document:{file_id:'test',file_size:4}}})}});
+vm.runInContext(source,ctx);
+const context=()=>({env:{},data:{},url:new URL('https://test/upload?stream=true&uploadId=test&chunkIndex=0&chunkSize=4'),uploadConfig:{telegram:{channels:[{chatId:'123',botToken:'test'}]}},request:{signal:new AbortController().signal,body:new ReadableStream({pull(c){reads++;c.enqueue(new TextEncoder().encode('ABCD'));c.close()}},{highWaterMark:0}),formData(){throw new Error('Must not parse multipart')},arrayBuffer(){throw new Error('Must not buffer')}}});
+assert.equal((await ctx.handleTelegramStream(context())).status,200);assert.equal(writes.at(-1).status,'completed');assert.equal(writes.at(-1).uploadResult.fileId,'test');
+complete=true;const before=reads;assert.equal((await ctx.handleTelegramStream(context())).status,200);assert.equal(reads,before);assert.equal(sent,1);
+complete=false;fail=true;assert.equal((await ctx.handleTelegramStream(context())).status,502);assert.equal(writes.at(-1).status,'failed');
+let pulls=0;const abort=new AbortController();const huge=new ReadableStream({pull(c){pulls++;c.enqueue(new Uint8Array(65536))}},{highWaterMark:0});const envelope=ctx.multipartStream(huge,{},'v',10*1024**3,abort.signal);assert.equal(pulls,0);const reader=envelope.stream.getReader();await reader.read();assert.equal(pulls,0);await reader.read();assert.equal(pulls,1);await reader.cancel();
+const mismatch=ctx.multipartStream(new ReadableStream({start(c){c.enqueue(new Uint8Array(5));c.close()}}),{},'v',4,new AbortController().signal);await assert.rejects(new Response(mismatch.stream).arrayBuffer(),/exceeds/);
+console.log('Passed: raw request streams without multipart parsing; success, idempotency, upstream failure, exact byte limits and 10 GiB lazy backpressure.');

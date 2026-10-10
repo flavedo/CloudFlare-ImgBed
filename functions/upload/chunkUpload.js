@@ -1,3 +1,4 @@
+import { handleTelegramStream } from './telegramStream.js';
 /* ======= 客户端分块上传处理 ======= */
 import { createResponse, selectConsistentChannel, getUploadIp, getIPAddress, buildUniqueFileId, endUpload } from './uploadTools';
 import { TelegramAPI } from '../utils/telegramAPI';
@@ -94,6 +95,7 @@ export async function initializeChunkedUpload(context) {
 
 // 处理客户端分块上传
 export async function handleChunkUpload(context) {
+    if (context.url.searchParams.get("stream") === "true") return handleTelegramStream(context);
     const { env, request, url, waitUntil } = context;
     const db = getDatabase(env);
 
