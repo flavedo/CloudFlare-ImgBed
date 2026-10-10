@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {onRequestDelete} from '../functions/api/manage/uploadFailures.js';
+import {FAILURE_PREFIX} from '../functions/utils/uploadFailureLog.js';
+const deleted=[];
+const kv={delete:async key=>{deleted.push(key)}};
+const id='12345678-1234-1234-1234-123456789012',time=123456;
+const request=records=>({env:{img_url:kv},request:new Request('https://test/api/manage/uploadFailures',{method:'DELETE',body:JSON.stringify({records})})});
+const response=await onRequestDelete(request([{id,time}]));
+assert.equal(response.status,200);assert.equal((await response.json()).deleted,1);
+assert.deepEqual(deleted,[`${FAILURE_PREFIX}${String(9999999999999-time).padStart(13,'0')}@${id}`]);
+for(const records of [[],[{id:'../../settings',time}],Array(21).fill({id,time}),[{id,time:-1}]])assert.equal((await onRequestDelete(request(records))).status,400);
+assert.equal(deleted.length,1);
+kv.delete=async()=>{throw new Error('quota')};
+const partial=await onRequestDelete(request([{id,time}]));assert.equal(partial.status,207);assert.deepEqual((await partial.json()).failed,[id]);
+console.log('Passed: bounded authenticated-route log deletion, prefix isolation, malformed batch rejection and partial failure reporting.');
