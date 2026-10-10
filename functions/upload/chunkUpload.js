@@ -5,6 +5,10 @@ import { DiscordAPI } from '../utils/discordAPI';
 import { S3Client, CreateMultipartUploadCommand, UploadPartCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { getDatabase, checkDatabaseConfig } from '../utils/databaseAdapter.js';
 
+const UPLOAD_SESSION_TTL = 24 * 60 * 60; // Allow slow 10 GiB uploads.
+const TELEGRAM_MAX_BYTES = 10 * 1024 ** 3;
+const TELEGRAM_CHUNK_BYTES = 16 * 1024 ** 2;
+
 // 初始化分块上传
 export async function initializeChunkedUpload(context) {
     const { request, env, url } = context;
@@ -33,6 +37,11 @@ export async function initializeChunkedUpload(context) {
 
         // 获取上传渠道
         const uploadChannel = url.searchParams.get('uploadChannel') || 'telegram';
+        if (!Number.isInteger(totalChunks) || totalChunks < 1 ||
+            (uploadChannel === 'telegram' && totalChunks > TELEGRAM_MAX_BYTES / TELEGRAM_CHUNK_BYTES)) {
+            return createResponse('Error: Telegram upload limit is 10 GiB (640 chunks)', { status: 413 });
+        }
+
         // 获取指定的渠道名称
         const channelName = url.searchParams.get('channelName') || '';
 
@@ -48,13 +57,13 @@ export async function initializeChunkedUpload(context) {
             ipAddress,
             status: 'initialized',
             createdAt: timestamp,
-            expiresAt: timestamp + 3600000 // 1小时过期
+            expiresAt: timestamp + UPLOAD_SESSION_TTL * 1000 // 24小时过期
         };
 
         // 保存会话信息
         const sessionKey = `upload_session_${uploadId}`;
         await db.put(sessionKey, JSON.stringify(sessionInfo), {
-            expirationTtl: 3600 // 1小时过期
+            expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
         });
 
         return createResponse(JSON.stringify({
@@ -124,6 +133,13 @@ export async function handleChunkUpload(context) {
         // 获取指定的渠道名称
         const channelName = url.searchParams.get('channelName') || sessionInfo.channelName || '';
 
+        if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= totalChunks) {
+            return createResponse('Error: Invalid chunk index', { status: 400 });
+        }
+        if (uploadChannel === 'telegram' && chunk.size > TELEGRAM_CHUNK_BYTES) {
+            return createResponse('Error: Telegram chunks must not exceed 16 MiB', { status: 413 });
+        }
+
         // 将渠道名称存入 context
         context.specifiedChannelName = channelName;
 
@@ -149,7 +165,7 @@ export async function handleChunkUpload(context) {
         const { usingD1 } = checkDatabaseConfig(env);
         await db.put(chunkKey, usingD1 ? '' : chunkData, {
             metadata: initialChunkMetadata,
-            expirationTtl: 3600 // 1小时过期
+            expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
         });
 
         // 同步上传分块到存储端，添加超时保护
@@ -240,7 +256,7 @@ async function uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks,
                 // 保留原始数据以便重试
                 await db.put(chunkKey, chunkRecord.value, {
                     metadata: errorMetadata,
-                    expirationTtl: 3600
+                    expirationTtl: UPLOAD_SESSION_TTL
                 });
             }
         } catch (metaError) {
@@ -302,7 +318,7 @@ async function uploadChunkToStorage(context, chunkIndex, totalChunks, uploadId, 
                 // 只保存metadata，不保存原始数据，设置过期时间
                 await db.put(chunkKey, '', {
                     metadata: updatedMetadata,
-                    expirationTtl: 3600 // 1小时过期
+                    expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
                 });
 
                 console.log(`Chunk ${chunkIndex} uploaded successfully to ${uploadChannel}`);
@@ -320,7 +336,7 @@ async function uploadChunkToStorage(context, chunkIndex, totalChunks, uploadId, 
                 // 保留原始数据以便重试，设置过期时间
                 await db.put(chunkKey, chunkData, {
                     metadata: failedMetadata,
-                    expirationTtl: 3600 // 1小时过期
+                    expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
                 });
 
                 console.warn(`Chunk ${chunkIndex} upload failed: ${failedMetadata.error}`);
@@ -343,7 +359,7 @@ async function uploadChunkToStorage(context, chunkIndex, totalChunks, uploadId, 
 
                 await db.put(chunkKey, chunkRecord.value, {
                     metadata: errorMetadata,
-                    expirationTtl: 3600 // 1小时过期
+                    expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
                 });
             }
         } catch (metaError) {
@@ -380,7 +396,7 @@ async function uploadSingleChunkToR2Multipart(context, chunkData, chunkIndex, to
 
             // 保存multipart info
             await db.put(multipartKey, JSON.stringify(multipartInfo), {
-                expirationTtl: 3600 // 1小时过期
+                expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
             });
         } else {
             // 其他分块需要等待第一个分块完成multipart upload初始化
@@ -495,7 +511,7 @@ async function uploadSingleChunkToS3Multipart(context, chunkData, chunkIndex, to
 
             // 保存multipart info
             await db.put(multipartKey, JSON.stringify(multipartInfo), {
-                expirationTtl: 3600 // 1小时过期
+                expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
             });
         } else {
             // 其他分块需要等待第一个分块完成multipart upload初始化
@@ -860,7 +876,7 @@ async function retrySingleChunk(context, chunk, uploadChannel, maxRetries = 5, r
 
         await db.put(chunk.key, chunkData, {
             metadata: retryMetadata,
-            expirationTtl: 3600
+            expirationTtl: UPLOAD_SESSION_TTL
         });
 
         while (retryCount < maxRetries) {
@@ -900,7 +916,7 @@ async function retrySingleChunk(context, chunk, uploadChannel, maxRetries = 5, r
                 // 删除原始数据，只保留上传结果，设置过期时间
                 await db.put(chunk.key, '', {
                     metadata: updatedMetadata,
-                    expirationTtl: 3600 // 1小时过期
+                    expirationTtl: UPLOAD_SESSION_TTL // 24小时过期
                 });
 
                 console.log(`Chunk ${chunk.index} retry successful after ${retryCount + 1} attempts`);
@@ -929,7 +945,7 @@ async function retrySingleChunk(context, chunk, uploadChannel, maxRetries = 5, r
 
                 await db.put(chunk.key, chunkRecord.value, {
                     metadata: failedRetryMetadata,
-                    expirationTtl: 3600
+                    expirationTtl: UPLOAD_SESSION_TTL
                 });
             }
         } catch (metaError) {
@@ -1019,10 +1035,23 @@ export async function checkChunkUploadStatuses(env, uploadId, totalChunks) {
 
     const db = getDatabase(env);
 
+    // Completed chunks only need metadata. Listing avoids hundreds of KV reads
+    // and stays within Pages Free's per-request subrequest budget at 640 chunks.
+    const records = new Map();
+    let cursor;
+    do {
+        const page = await db.list({ prefix: `chunk_${uploadId}_`, limit: 1000, ...(cursor ? { cursor } : {}) });
+        for (const key of page.keys) records.set(key.name, key.metadata);
+        cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+
     for (let i = 0; i < totalChunks; i++) {
         const chunkKey = `chunk_${uploadId}_${i.toString().padStart(3, '0')}`;
         try {
-            const chunkRecord = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
+            const listedMetadata = records.get(chunkKey);
+            const chunkRecord = listedMetadata?.status === 'completed'
+                ? { value: null, metadata: listedMetadata }
+                : await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
             if (chunkRecord && chunkRecord.metadata) {
                 let status = chunkRecord.metadata.status || 'unknown';
 
@@ -1040,7 +1069,7 @@ export async function checkChunkUploadStatuses(env, uploadId, totalChunks) {
 
                     await db.put(chunkKey, chunkRecord.value, {
                         metadata: timeoutMetadata,
-                        expirationTtl: 3600
+                        expirationTtl: UPLOAD_SESSION_TTL
                     }).catch(err => console.warn(`Failed to update timeout status for chunk ${i}:`, err));
                 }
 
@@ -1098,6 +1127,10 @@ export async function cleanupChunkData(env, uploadId, totalChunks) {
     try {
         const db = getDatabase(env);
 
+        // Large sessions expire automatically; deleting every chunk here would
+        // exceed Pages Free's subrequest budget after a successful merge.
+        if (totalChunks > 32 && !checkDatabaseConfig(env).usingD1) return;
+
         for (let i = 0; i < totalChunks; i++) {
             const chunkKey = `chunk_${uploadId}_${i.toString().padStart(3, '0')}`;
 
@@ -1144,7 +1177,7 @@ export async function forceCleanupUpload(context, uploadId, totalChunks) {
         const cleanupPromises = [];
 
         // 清理所有分块
-        for (let i = 0; i < totalChunks; i++) {
+        for (let i = 0; i < (totalChunks > 32 && !checkDatabaseConfig(env).usingD1 ? 0 : totalChunks); i++) {
             const chunkKey = `chunk_${uploadId}_${i.toString().padStart(3, '0')}`;
             cleanupPromises.push(db.delete(chunkKey).catch(err =>
                 console.warn(`Failed to delete chunk ${i}:`, err)

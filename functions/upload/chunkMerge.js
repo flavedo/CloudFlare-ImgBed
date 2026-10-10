@@ -446,6 +446,10 @@ async function mergeTelegramChunksInfo(context, uploadId, completedChunks, metad
         // 计算总大小
         const totalSize = sortedChunks.reduce((sum, chunk) => sum + chunk.uploadResult.size, 0);
 
+        if (totalSize > 10 * 1024 ** 3) {
+            throw new Error('Telegram upload limit is 10 GiB');
+        }
+
         // 构建分块信息数组
         const chunks = sortedChunks.map(chunk => ({
             index: chunk.index,
