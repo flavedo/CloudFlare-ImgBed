@@ -14,7 +14,7 @@ export async function saveUploadFailure(context, error, status) {
     const details = context.data.uploadLogDetails || {};
     const time = Date.now();
     const record = {
-        id: crypto.randomUUID(), uploadId: details.uploadId || context.data.uploadLogId,
+        id: crypto.randomUUID(), uploadId: details.uploadId || url.searchParams.get('uploadId') || context.data.uploadLogId,
         fileName: String(details.fileName || '').slice(0, 512),
         fileSizeBytes: Number.isSafeInteger(details.fileSizeBytes) ? details.fileSizeBytes : null,
         chunkSizeBytes: Number.isSafeInteger(details.chunkSizeBytes) ? details.chunkSizeBytes : null,
