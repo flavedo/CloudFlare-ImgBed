@@ -40,9 +40,9 @@
                 link.setAttribute('data-v-1c133c47', '');
             } else {
                 link.href = '/upload-failures.html';
-                link.title = '上传失败日志';
-                link.setAttribute('aria-label', '上传失败日志');
-                link.textContent = '上传失败日志';
+                link.title = '上传日志';
+                link.setAttribute('aria-label', '上传日志');
+                link.textContent = '上传日志';
                 link.removeAttribute('data-v-1c133c47');
             }
         }
